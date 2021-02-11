@@ -108,8 +108,7 @@ TEST(StorageTest, GetIfAbsent)
     EXPECT_FALSE(storage.Get("KEY3", value));
 }
 
-TEST(StorageTest, DeleteIfAbsent)
-{
+TEST(StorageTest, DeleteIfAbsent) {
     SimpleLRU storage;
     EXPECT_FALSE(storage.Delete("KEY1"));
 
@@ -118,8 +117,7 @@ TEST(StorageTest, DeleteIfAbsent)
     EXPECT_FALSE(storage.Delete("KEY3"));
 }
 
-TEST(StorageTest, DeleteHeadAndTailNode)
-{
+TEST(StorageTest, DeleteHeadAndTailNode) {
     SimpleLRU storage;
 
     EXPECT_TRUE(storage.Put("KEY1", "val1"));

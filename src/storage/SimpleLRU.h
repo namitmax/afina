@@ -17,11 +17,19 @@ namespace Backend {
  */
 class SimpleLRU : public Afina::Storage {
 public:
-    SimpleLRU(size_t max_size = 1024) : _max_size(max_size) {}
+    explicit SimpleLRU(size_t max_size = 1024) : _max_size(max_size),
+                                        _current_size(0),
+                                        _lru_tail(nullptr),
+                                        _lru_index(),
+                                        _lru_head() {}
 
-    ~SimpleLRU() {
+    ~SimpleLRU() override {
         _lru_index.clear();
-        _lru_head.reset(); // TODO: Here is stack overflow
+        while (_lru_tail && _lru_tail != _lru_head.get()) {
+            _lru_tail = _lru_tail->prev;
+            _lru_tail->next.reset();
+        }
+        _lru_head.reset(); // TODO: Here is stack overflow \/
     }
 
     // Implements Afina::Storage interface
@@ -40,13 +48,35 @@ public:
     bool Get(const std::string &key, std::string &value) override;
 
 private:
+
     // LRU cache node
     using lru_node = struct lru_node {
-        std::string key;
+        const std::string key;
         std::string value;
-        std::unique_ptr<lru_node> prev;
+        lru_node* prev;
         std::unique_ptr<lru_node> next;
     };
+
+    // The function makes new LRU head.
+    void MakeNewHead(lru_node &node);
+
+    // The function moves the recently used element to LRU head.
+    void MoveNodeToHead(lru_node &node);
+
+    // The function delete the last element from LRU tail.
+    void DeleteElementFromTail();
+
+    // Put new value and key in LRU.
+    void MakeKeyValue(const std::string &key,
+                      const std::string &value);
+
+    // This function changes the value of the given key.
+    void ChangeKeyValue(lru_node &node,
+                        const std::string &value);
+
+    // Current number of bytes (keys+values)
+    // that are stored in this cache.
+    std::size_t _current_size = 0;
 
     // Maximum number of bytes could be stored in this cache.
     // i.e all (keys+values) must be less the _max_size
@@ -58,8 +88,11 @@ private:
     // List owns all nodes
     std::unique_ptr<lru_node> _lru_head;
 
+    lru_node *_lru_tail;
+
     // Index of nodes from list above, allows fast random access to elements by lru_node#key
-    std::map<std::reference_wrapper<std::string>, std::reference_wrapper<lru_node>, std::less<std::string>> _lru_index;
+    std::map<std::reference_wrapper<const std::string>,
+             std::reference_wrapper<lru_node>, std::less<std::string>> _lru_index;
 };
 
 } // namespace Backend
