@@ -60,6 +60,7 @@ void SimpleLRU::MakeKeyValue(const std::string &key,
 
 void SimpleLRU::ChangeKeyValue(lru_node &node,
                                const std::string &value) {
+    MoveNodeToHead(node);
     if (value.size() > node.value.size()) {
         while (_current_size + value.size() - node.value.size() > _max_size) {
             DeleteElementFromTail();
@@ -68,7 +69,6 @@ void SimpleLRU::ChangeKeyValue(lru_node &node,
     } else {
         _current_size -= (node.value.size() - value.size());
     }
-    MoveNodeToHead(node);
     node.value = value;
 }
 
