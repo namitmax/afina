@@ -3,6 +3,8 @@
 
 #include <atomic>
 #include <thread>
+#include <set>
+#include <condition_variable>
 
 #include <afina/network/Server.h>
 
@@ -38,6 +40,8 @@ protected:
      */
     void OnRun();
 
+    void ExecutableFunction(const int client_socket);
+
 private:
     // Logger instance
     std::shared_ptr<spdlog::logger> _logger;
@@ -52,6 +56,12 @@ private:
 
     // Thread to run network on
     std::thread _thread;
+
+    std::mutex _mutex;
+
+    std::set<int> _sockets;
+
+    std::condition_variable _wait_stop;
 };
 
 } // namespace MTblocking
