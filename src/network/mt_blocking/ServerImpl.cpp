@@ -37,6 +37,7 @@ ServerImpl::~ServerImpl() {}
 void ServerImpl::Start(uint16_t port, uint32_t n_accept, uint32_t n_workers) {
     _logger = pLogging->select("network");
     _logger->info("Start mt_blocking network service");
+    _max_threads = n_workers;
 
     sigset_t sig_mask;
     sigemptyset(&sig_mask);
@@ -91,20 +92,16 @@ void ServerImpl::Join() {
     assert(_thread.joinable());
     _thread.join();
     close(_server_socket);
-    std::unique_lock<std::mutex> _lock(_mutex);
-    while (!_sockets.empty() && !running) {
-        _wait_stop.wait(_lock);
-    }
 }
 
 void ServerImpl::ExecutableFunction(const int client_socket) {
-    std::size_t arg_remains;
+    std::size_t arg_remains = 0;
     Protocol::Parser parser;
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
     try {
         int readed_bytes = -1;
-        char client_buffer[4096];
+        char client_buffer[4096] = "";
         while ((readed_bytes = read(client_socket, client_buffer, sizeof(client_buffer))) > 0) {
             _logger->debug("Got {} bytes from socket", readed_bytes);
 
@@ -236,14 +233,19 @@ void ServerImpl::OnRun() {
 
         // TODO: Start new thread and process data from/to connection
         {
-            std::unique_lock<std::mutex> _connection_lock(_mutex);
-            if ((_sockets.size() + 1) <= std::thread::hardware_concurrency()) {
+            std::lock_guard<std::mutex> _connection_lock(_mutex);
+            if ((_sockets.size() + 1) <= _max_threads && running) {
                 _sockets.insert(client_socket);
                 std::thread(&ServerImpl::ExecutableFunction, this, client_socket).detach();
             } else {
                 close(client_socket);
             }
         }
+    }
+
+    std::unique_lock<std::mutex> _lock(_mutex);
+    while (!_sockets.empty() && !running) {
+        _wait_stop.wait(_lock);
     }
 
     // Cleanup on exit...

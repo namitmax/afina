@@ -54,6 +54,9 @@ private:
     // Server socket to accept connections on
     int _server_socket;
 
+    // Number of maximum working threads.
+    size_t _max_threads;
+
     // Thread to run network on
     std::thread _thread;
 
