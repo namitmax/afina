@@ -17,7 +17,16 @@ using namespace Afina::Execute;
 using namespace std;
 
 
-
+TEST(StorageTest, ExtraDelete) {
+    SimpleLRU storage(10);
+    EXPECT_TRUE(storage.Put("1", "123"));
+    EXPECT_TRUE(storage.Put("2", "1234"));
+    EXPECT_TRUE(storage.Put("1", "12345"));
+    std::string value;
+    EXPECT_TRUE(storage.Get("1", value));
+    EXPECT_TRUE(value == "12345");
+    EXPECT_FALSE(storage.Get("2", value));
+}
 
 TEST(StorageTest, PutGet) {
     SimpleLRU storage;
@@ -108,8 +117,7 @@ TEST(StorageTest, GetIfAbsent)
     EXPECT_FALSE(storage.Get("KEY3", value));
 }
 
-TEST(StorageTest, DeleteIfAbsent)
-{
+TEST(StorageTest, DeleteIfAbsent) {
     SimpleLRU storage;
     EXPECT_FALSE(storage.Delete("KEY1"));
 
@@ -118,8 +126,7 @@ TEST(StorageTest, DeleteIfAbsent)
     EXPECT_FALSE(storage.Delete("KEY3"));
 }
 
-TEST(StorageTest, DeleteHeadAndTailNode)
-{
+TEST(StorageTest, DeleteHeadAndTailNode) {
     SimpleLRU storage;
 
     EXPECT_TRUE(storage.Put("KEY1", "val1"));
