@@ -3,18 +3,18 @@
 namespace Afina {
 namespace Backend {
 
-StripedLRU* StripedLRU::CreateStorage(const size_t max_size = 1024, const size_t stripe_count = 2) {
+std::unique_ptr<StripedLRU> StripedLRU::CreateStorage(const size_t max_size, const size_t stripe_count) {
     size_t capacity = 0;
     if (stripe_count != 0) {
         capacity = max_size / stripe_count;
     } else {
         throw std::runtime_error("Number of stripes is equal to zero!!!!");
     }
-    if (capacity < 128) {
+    if (capacity < 1 * 1024 * 1024UL) {
         throw std::runtime_error("There is no reason to use so big number "
                                  "of stripes, because size of each of them is too small!!!!");
     }
-    return (new StripedLRU(max_size, stripe_count));
+    return std::unique_ptr<StripedLRU>(new StripedLRU(max_size, stripe_count));
 };
 
 bool StripedLRU::Put(const std::string &key, const std::string &value) {
@@ -37,20 +37,13 @@ bool StripedLRU::Get(const std::string &key, std::string &value) {
     return _shard[hash(key) % _stripe_count]->Get(key, value);
 }
 
-StripedLRU::~StripedLRU() {
-    for (size_t i = 0; i < _stripe_count; i++) {
-        delete _shard[i];
-    }
-    delete [] _shard;
-};
-
-StripedLRU::StripedLRU(size_t max_size = 1024,
-                       size_t stripe_count = 1) {
+StripedLRU::StripedLRU(size_t max_size,
+                       size_t stripe_count) {
     _stripe_count = stripe_count;
     _capacity = max_size / _stripe_count;
-    _shard = new ThreadSafeSimpleLRU *[_stripe_count];
     for (size_t i = 0; i < _stripe_count; i++) {
-        _shard[i] = new ThreadSafeSimpleLRU(_capacity);
+        _shard.emplace_back(
+            std::unique_ptr<ThreadSafeSimpleLRU>(new ThreadSafeSimpleLRU(_capacity)));
     }
 };
 

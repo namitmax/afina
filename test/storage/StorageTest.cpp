@@ -16,7 +16,6 @@ using namespace Afina::Backend;
 using namespace Afina::Execute;
 using namespace std;
 
-
 TEST(StorageTest, ExtraDelete) {
     SimpleLRU storage(10);
     EXPECT_TRUE(storage.Put("1", "123"));

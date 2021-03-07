@@ -6,6 +6,7 @@
 #define AFINA_STORAGE_TRIPED_LRU_H
 
 #include "ThreadSafeSimpleLRU.h"
+#include <vector>
 
 namespace Afina {
 namespace Backend {
@@ -13,7 +14,8 @@ namespace Backend {
 class StripedLRU: public Afina::Storage {
 public:
 
-    static StripedLRU* CreateStorage(const size_t max_size, const size_t stripe_count);
+    static std::unique_ptr<StripedLRU>
+        CreateStorage(const size_t max_size  = 1024, const size_t stripe_count = 2);
 
     // Implements Afina::Storage interface
     bool Put(const std::string &key, const std::string &value) override;
@@ -30,15 +32,16 @@ public:
     // Implements Afina::Storage interface
     bool Get(const std::string &key, std::string &value) override;
 
-    ~StripedLRU();
+    StripedLRU(size_t max_size, size_t stripe_count);
+
+    ~StripedLRU() {};
 
 private:
-    StripedLRU(size_t max_size, size_t stripe_count);
 
     std::size_t _capacity = 0;
     size_t _stripe_count = 0;
     std::hash<std::string> hash;
-    ThreadSafeSimpleLRU* *_shard = 0;
+    std::vector<std::unique_ptr<ThreadSafeSimpleLRU>> _shard;
     // hash
 };
 } // namespace Backend
