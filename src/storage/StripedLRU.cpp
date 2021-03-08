@@ -18,32 +18,36 @@ std::unique_ptr<StripedLRU> StripedLRU::CreateStorage(const size_t max_size, con
 };
 
 bool StripedLRU::Put(const std::string &key, const std::string &value) {
-    return _shard[hash(key) % _stripe_count]->Put(key, value);
+    std::lock_guard<std::mutex> _lock(_mutex_for_shard[hash(key) % _stripe_count]);
+    return _shard[hash(key) % _stripe_count].Put(key, value);
 }
 
 bool StripedLRU::PutIfAbsent(const std::string &key, const std::string &value) {
-    return _shard[hash(key) % _stripe_count]->PutIfAbsent(key, value);
+    std::lock_guard<std::mutex> _lock(_mutex_for_shard[hash(key) % _stripe_count]);
+    return _shard[hash(key) % _stripe_count].PutIfAbsent(key, value);
 }
 
 bool StripedLRU::Set(const std::string &key, const std::string &value) {
-    return _shard[hash(key) % _stripe_count]->Set(key, value);
+    std::lock_guard<std::mutex> _lock(_mutex_for_shard[hash(key) % _stripe_count]);
+    return _shard[hash(key) % _stripe_count].Set(key, value);
 }
 
 bool StripedLRU::Delete(const std::string &key) {
-    return _shard[hash(key) % _stripe_count]->Delete(key);
+    std::lock_guard<std::mutex> _lock(_mutex_for_shard[hash(key) % _stripe_count]);
+    return _shard[hash(key) % _stripe_count].Delete(key);
 }
 
 bool StripedLRU::Get(const std::string &key, std::string &value) {
-    return _shard[hash(key) % _stripe_count]->Get(key, value);
+    std::lock_guard<std::mutex> _lock(_mutex_for_shard[hash(key) % _stripe_count]);
+    return _shard[hash(key) % _stripe_count].Get(key, value);
 }
 
 StripedLRU::StripedLRU(size_t max_size,
-                       size_t stripe_count) {
-    _stripe_count = stripe_count;
-    _capacity = max_size / _stripe_count;
+                       size_t stripe_count):  _stripe_count(stripe_count),
+                                              _capacity(max_size / _stripe_count),
+                                              _mutex_for_shard(stripe_count) {
     for (size_t i = 0; i < _stripe_count; i++) {
-        _shard.emplace_back(
-            std::unique_ptr<ThreadSafeSimpleLRU>(new ThreadSafeSimpleLRU(_capacity)));
+        _shard.emplace_back(SimpleLRU(_capacity));
     }
 };
 
