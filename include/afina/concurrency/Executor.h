@@ -10,6 +10,7 @@
 #include <thread>
 #include <algorithm>
 #include <iostream>
+#include <unordered_map>
 
 namespace Afina {
 namespace Concurrency {
@@ -41,9 +42,10 @@ public:
                             _time(time) {
              std::unique_lock<std::mutex> lock(mutex);
              for (size_t  i = 0; i < low_watermark; ++i) {
-                 threads.emplace_back(std::thread([this] {
+                 std::thread thread = std::thread([this] {
                      return perform(this);
-                 }));
+                 });
+                 threads.emplace(thread.get_id(), std::move(thread));
              }
     };
 
@@ -58,17 +60,19 @@ public:
      * In case if await flag is true, call won't return until all background jobs are done and all threads are stopped
      */
     void Stop(bool await = false) {
-        state = State::kStopping;
         {
-            std::unique_lock<std::mutex> condition_lock(mutex);
-            empty_condition.notify_all();
+            std::unique_lock<std::mutex> _lock(mutex);
+            state = State::kStopping;
         }
-        for (size_t i = 0; i < threads.size(); ++i) {
-            if (await) {
-                threads[i].join();
+        empty_condition.notify_all();
+        for (auto &thread : threads) {
+            if (await && thread.second.joinable()) {
+                thread.second.join();
             }
         }
-        state = State::kStopped;
+        if (_working == 0) {
+            state = State::kStopped;
+        }
     }
 
     /**
@@ -81,26 +85,22 @@ public:
     template <typename F, typename... Types> bool Execute(F &&func, Types... args) {
         // Prepare "task"
         auto exec = std::bind(std::forward<F>(func), std::forward<Types>(args)...);
-
-        if (state != State::kRun || _current_size >= max_queue_size) {
+        std::unique_lock<std::mutex> lock(this->mutex);
+        if (state != State::kRun || tasks.size() >= max_queue_size) {
             return false;
         }
-
         // Enqueue new task
-        {
-            std::unique_lock<std::mutex> lock(mutex);
-            if (threads.size() < high_watermark
-                && _current_size++ > 0
-                && threads.size() == _working) {
-                threads.emplace_back(std::thread([this] {
-                    return perform(this);
-                }));
-            }
+        if (threads.size() < high_watermark
+            && threads.size() == _working) {
+            auto thread = std::thread([this] {
+                return perform(this);
+            });
+            threads.emplace(thread.get_id(), std::move(thread));
         }
-        std::unique_lock<std::mutex> lock(this->mutex);
 
         tasks.push_back(exec);
         empty_condition.notify_one();
+
         return true;
     }
 
@@ -116,46 +116,38 @@ private:
      */
     friend void perform(Executor *executor) {
         auto now = std::chrono::system_clock::now();
-        while (executor->state == Executor::State::kRun) {
-            std::function<void ()> work_func;
-            {
-                std::unique_lock<std::mutex> condition_lock(executor->mutex);
+        {
+            std::unique_lock<std::mutex> lock(executor->_mutex);
+            while (executor->state == Executor::State::kRun) {
+                std::function<void()> work_func;
                 {
+                    std::unique_lock<std::mutex> condition_lock(executor->mutex);
                     while (executor->tasks.empty()) {
                         auto wake = executor->empty_condition.wait_until(
-                            condition_lock,
-                            now + std::chrono::milliseconds(executor->_time));
+                            condition_lock, now + std::chrono::milliseconds(executor->_time));
                         if (executor->state != Executor::State::kRun ||
-                                executor->tasks.empty() &&
-                                executor->threads.size() > executor->low_watermark &&
+                            executor->tasks.empty() && executor->threads.size() > executor->low_watermark &&
                                 wake == std::cv_status::timeout) {
                             if (executor->state != Executor::State::kStopping) {
-                                std::unique_lock<std::mutex> lock(executor->_mutex);
                                 auto id = std::this_thread::get_id();
-                                auto find_it =
-                                    std::find_if(executor->threads.begin(), executor->threads.end(),
-                                                 [id](std::thread &thread) {
-                                                     return thread.get_id() == id;
-                                                 });
-                                executor->threads.erase(find_it);
+                                executor->threads.erase(id);
                             }
                             return;
                         }
                     }
                     work_func = std::move(executor->tasks.front());
                     executor->tasks.pop_front();
-                    executor->_current_size--;
                     executor->_working++;
                 }
-            }
-            try {
-                work_func();
-            } catch (...) {
-                std::cout << "Some error  occurred during the  function execution";
-            }
-            {
-                std::unique_lock<std::mutex> lock(executor->mutex);
-                executor->_working--;
+                try {
+                    work_func();
+                } catch (const std::exception &err) {
+                    std::cout << "Some error  occurred during the  function execution, what : " << err.what();
+                }
+                {
+                    std::unique_lock<std::mutex> lock(executor->mutex);
+                    executor->_working--;
+                }
             }
         }
     };
@@ -173,8 +165,8 @@ private:
     /**
      * Vector of actual threads that perorm execution
      */
-    std::vector<std::thread> threads;
-
+    std::unordered_map<std::thread::id, std::thread> threads;
+    std::vector<std::thread> threads_ids;
     /**
      * Task queue
      */
@@ -188,7 +180,6 @@ private:
     size_t low_watermark;
     size_t high_watermark;
     size_t max_queue_size;
-    int _current_size = 0;
     int _working = 0;
     size_t _time;
     std::string _name;
