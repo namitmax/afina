@@ -23,6 +23,8 @@ public:
                                         _lru_index(),
                                         _lru_head() {}
 
+    SimpleLRU(SimpleLRU&&) = default;
+
     ~SimpleLRU() override {
         _lru_index.clear();
         while (_lru_tail && _lru_tail != _lru_head.get()) {
