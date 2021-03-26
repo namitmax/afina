@@ -200,7 +200,7 @@ void ServerImpl::OnRun() {
     Protocol::Parser parser;
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
-    Afina::Concurrency::Executor executor("client", 10);
+    Afina::Concurrency::Executor executor("client", 10, 8, 0 ,1);
     while (running.load()) {
         _logger->debug("waiting for connection...");
 

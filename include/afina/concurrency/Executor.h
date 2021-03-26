@@ -47,6 +47,7 @@ public:
                  });
                  threads.emplace(thread.get_id(), std::move(thread));
              }
+             state = State::kRun;
     };
 
     ~Executor() {
@@ -65,14 +66,23 @@ public:
             state = State::kStopping;
         }
         empty_condition.notify_all();
-        for (auto &thread : threads) {
+        /*for (auto &thread : threads) {
             if (await && thread.second.joinable()) {
                 thread.second.join();
             }
-        }
-        if (_working == 0) {
+        }*/
+        {
+            std::unique_lock<std::mutex> _lock(mutex);
+            if (await) {
+                while (!threads.empty()){
+                    stop_condition.wait(_lock);
+                }
+            }
             state = State::kStopped;
         }
+        /*if (_working == 0) {
+            state = State::kStopped;
+        }*/
     }
 
     /**
@@ -115,40 +125,46 @@ private:
      * Main function that all pool threads are running. It polls internal task queue and execute tasks
      */
     friend void perform(Executor *executor) {
-        auto now = std::chrono::system_clock::now();
-        {
-            std::unique_lock<std::mutex> lock(executor->_mutex);
-            while (executor->state == Executor::State::kRun) {
-                std::function<void()> work_func;
-                {
-                    std::unique_lock<std::mutex> condition_lock(executor->mutex);
-                    while (executor->tasks.empty()) {
-                        auto wake = executor->empty_condition.wait_until(
-                            condition_lock, now + std::chrono::milliseconds(executor->_time));
-                        if (executor->state != Executor::State::kRun ||
-                            executor->tasks.empty() && executor->threads.size() > executor->low_watermark &&
-                                wake == std::cv_status::timeout) {
-                            if (executor->state != Executor::State::kStopping) {
-                                auto id = std::this_thread::get_id();
-                                executor->threads.erase(id);
-                            }
-                            return;
-                        }
+        std::unique_lock<std::mutex> lock(executor->_mutex);
+        while (executor->state == Executor::State::kRun || !executor->tasks.empty()) {
+            std::function<void()> work_func;
+            while (executor->tasks.empty()) {
+                auto now = std::chrono::system_clock::now();
+                auto wake = executor->empty_condition.wait_until(
+                            lock, now + std::chrono::milliseconds(executor->_time));
+                if (executor->state != Executor::State::kRun ||
+                    executor->tasks.empty() && executor->threads.size() > executor->low_watermark &&
+                        wake == std::cv_status::timeout) {
+                    if (executor->state != Executor::State::kStopping) {
+                        auto id = std::this_thread::get_id();
+                        executor->threads.at(id).detach();
+                        executor->threads.erase(id);
                     }
-                    work_func = std::move(executor->tasks.front());
-                    executor->tasks.pop_front();
-                    executor->_working++;
+                    return;
                 }
-                try {
-                    work_func();
-                } catch (const std::exception &err) {
-                    std::cout << "Some error  occurred during the  function execution, what : " << err.what();
-                }
-                {
-                    std::unique_lock<std::mutex> lock(executor->mutex);
-                    executor->_working--;
+                if (executor->state != Executor::State::kRun) {
+                    auto id = std::this_thread::get_id();
+                    executor->threads.at(id).detach();
+                    executor->threads.erase(id);
+                    if (executor->threads.empty()) {
+                        executor->stop_condition.notify_all();
+                    }
+                    return;
                 }
             }
+            work_func = std::move(executor->tasks.front());
+            executor->tasks.pop_front();
+            executor->_working++;
+            lock.unlock();
+            try {
+                work_func();
+            } catch (const std::exception &err) {
+                std::cout << "Some error  occurred during the  function execution, what : " << err.what() << std::endl;
+            } catch (...) {
+                std::cout << "Some error  occurred during the  function execution, there is no log"  << std::endl;
+            }
+            lock.lock();
+            executor->_working--;
         }
     };
 
@@ -162,11 +178,11 @@ private:
      */
     std::condition_variable empty_condition;
 
+    std::condition_variable stop_condition;
     /**
      * Vector of actual threads that perorm execution
      */
     std::unordered_map<std::thread::id, std::thread> threads;
-    std::vector<std::thread> threads_ids;
     /**
      * Task queue
      */
