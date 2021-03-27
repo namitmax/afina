@@ -61,6 +61,9 @@ public:
      * In case if await flag is true, call won't return until all background jobs are done and all threads are stopped
      */
     void Stop(bool await = false) {
+        if (state == State::kStopped) {
+            return;
+        }
         {
             std::unique_lock<std::mutex> _lock(mutex);
             state = State::kStopping;
