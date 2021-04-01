@@ -34,20 +34,20 @@ public:
     };
 
     Executor (std::string name, int size,
-             size_t max = 8, size_t min = 2,
-             size_t time = 100) : _name(name),
-                            max_queue_size(size),
-                            low_watermark(min),
-                            high_watermark(max),
-                            _time(time) {
-             std::unique_lock<std::mutex> lock(mutex);
-             for (size_t  i = 0; i < low_watermark; ++i) {
-                 std::thread thread = std::thread([this] {
-                     return perform(this);
-                 });
-                 threads.emplace(thread.get_id(), std::move(thread));
-             }
-             state = State::kRun;
+              size_t max = 8, size_t min = 2,
+              size_t time = 100) : _name(name),
+                                   max_queue_size(size),
+                                   low_watermark(min),
+                                   high_watermark(max),
+                                   _time(time) {
+        std::unique_lock<std::mutex> lock(mutex);
+        for (size_t  i = 0; i < low_watermark; ++i) {
+            std::thread thread = std::thread([this] {
+                return perform(this);
+            });
+            threads.emplace(thread.get_id(), std::move(thread));
+        }
+        state = State::kRun;
     };
 
     ~Executor() {
@@ -61,28 +61,25 @@ public:
      * In case if await flag is true, call won't return until all background jobs are done and all threads are stopped
      */
     void Stop(bool await = false) {
+        if (state == State::kStopped) {
+            return;
+        }
         {
             std::unique_lock<std::mutex> _lock(mutex);
             state = State::kStopping;
         }
         empty_condition.notify_all();
-        /*for (auto &thread : threads) {
-            if (await && thread.second.joinable()) {
-                thread.second.join();
-            }
-        }*/
         {
             std::unique_lock<std::mutex> _lock(mutex);
             if (await) {
-                while (!threads.empty()){
+                while (!threads.empty()) {
                     stop_condition.wait(_lock);
                 }
             }
-            state = State::kStopped;
+            if (_working == 0) {
+                state = State::kStopped;
+            }
         }
-        /*if (_working == 0) {
-            state = State::kStopped;
-        }*/
     }
 
     /**
@@ -126,31 +123,22 @@ private:
      */
     friend void perform(Executor *executor) {
         std::unique_lock<std::mutex> lock(executor->_mutex);
+        bool loop_stat = false;
         while (executor->state == Executor::State::kRun || !executor->tasks.empty()) {
             std::function<void()> work_func;
+            auto now = std::chrono::system_clock::now();
             while (executor->tasks.empty()) {
-                auto now = std::chrono::system_clock::now();
                 auto wake = executor->empty_condition.wait_until(
-                            lock, now + std::chrono::milliseconds(executor->_time));
+                    lock, now + std::chrono::milliseconds(executor->_time));
                 if (executor->state != Executor::State::kRun ||
                     executor->tasks.empty() && executor->threads.size() > executor->low_watermark &&
-                        wake == std::cv_status::timeout) {
-                    if (executor->state != Executor::State::kStopping) {
-                        auto id = std::this_thread::get_id();
-                        executor->threads.at(id).detach();
-                        executor->threads.erase(id);
-                    }
-                    return;
+                    wake == std::cv_status::timeout) {
+                    loop_stat = true;
+                    break;
                 }
-                if (executor->state != Executor::State::kRun) {
-                    auto id = std::this_thread::get_id();
-                    executor->threads.at(id).detach();
-                    executor->threads.erase(id);
-                    if (executor->threads.empty()) {
-                        executor->stop_condition.notify_all();
-                    }
-                    return;
-                }
+            }
+            if (loop_stat && executor->tasks.empty()) {
+                break;
             }
             work_func = std::move(executor->tasks.front());
             executor->tasks.pop_front();
@@ -165,6 +153,13 @@ private:
             }
             lock.lock();
             executor->_working--;
+        }
+        auto id = std::this_thread::get_id();
+        executor->threads.at(id).detach();
+        executor->threads.erase(id);
+        if (executor->threads.empty() && executor->state != Executor::State::kRun) {
+            executor->stop_condition.notify_all();
+            executor->state = Executor::State::kStopped;
         }
     };
 
