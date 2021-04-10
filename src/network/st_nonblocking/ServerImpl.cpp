@@ -43,6 +43,9 @@ void ServerImpl::Stop() {
     for (auto c : _connections){
         shutdown(c->_socket, SHUT_WR);
     }
+    for (auto c : _connections){
+        shutdown(c->_socket, SHUT_RD);
+    }
     // Wakeup threads that are sleep on epoll_wait
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
@@ -78,6 +81,11 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
     if (setsockopt(_server_socket, SOL_SOCKET, (SO_KEEPALIVE), &opts, sizeof(opts)) == -1) {
         close(_server_socket);
         throw std::runtime_error("Socket setsockopt() failed: " + std::string(strerror(errno)));
+    }
+
+    if (setsockopt(_server_socket, SOL_SOCKET, SO_REUSEADDR, &opts, sizeof(opts)) == -1) {
+        close(_server_socket);
+        throw std::runtime_error("Socket setsockopt() failed");
     }
 
     if (bind(_server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
@@ -121,6 +129,7 @@ void ServerImpl::OnRun() {
     if (epoll_ctl(epoll_descr, EPOLL_CTL_ADD, _server_socket, &event)) {
         throw std::runtime_error("Failed to add file descriptor to epoll");
     }
+
 
     struct epoll_event event2;
     event2.events = EPOLLIN;
@@ -168,11 +177,11 @@ void ServerImpl::OnRun() {
                 // Depends on what connection wants...
                 if (current_event.events & EPOLLIN) {
                     pc->DoRead();
-                    current_event.events = pc->_event.events;
+                   // current_event.events = pc->_event.events;
                 }
                 if (current_event.events & EPOLLOUT) {
                     pc->DoWrite();
-                    current_event.events = pc->_event.events;
+                    //current_event.events = pc->_event.events;
                 }
             }
 

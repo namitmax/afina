@@ -40,7 +40,7 @@ void Connection::DoRead() {
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
     std::size_t arg_remains;
-    int readed_bytes;
+    int readed_bytes = -1;
     try {
         if ((readed_bytes = read(_socket, client_buffer + _parsed, SIZE - _parsed)) > 0) {
             _logger->debug("Got {} bytes from socket", readed_bytes);
@@ -58,6 +58,8 @@ void Connection::DoRead() {
 
                     // Parsed might fails to consume any bytes from input stream (UTF-16 chars and only 1 byte left)
                     if (parsed == 0) {
+                        _parsed = readed_bytes;
+                        std::memmove(client_buffer, client_buffer + _parsed, _parsed);
                         break;
                     } else {
                         readed_bytes -= parsed;
@@ -100,8 +102,11 @@ void Connection::DoRead() {
                     parser.Reset();
                 }
             }
-        } else if (readed_bytes < 1) {
-            _active = false;
+        } else if (readed_bytes == 0 || readed_bytes == EAGAIN || readed_bytes == EWOULDBLOCK) {
+            _parsed = 0;
+          _active = false;
+        } else {
+            throw std::runtime_error(std::string(strerror(errno)));
         }
     } catch (std::runtime_error &ex) {
         _logger->error("Failed to process connection on descriptor {}: {}", _socket, ex.what());

@@ -1,8 +1,11 @@
 #ifndef AFINA_NETWORK_MT_NONBLOCKING_WORKER_H
 #define AFINA_NETWORK_MT_NONBLOCKING_WORKER_H
 
+#include "Connection.h"
+#include "ServerImpl.h"
 #include <atomic>
 #include <memory>
+#include <set>
 #include <thread>
 
 namespace spdlog {
@@ -27,7 +30,8 @@ namespace MTnonblock {
  */
 class Worker {
 public:
-    Worker(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Afina::Logging::Service> pl);
+    Worker(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Afina::Logging::Service> pl,
+           ServerImpl* server);
     ~Worker();
 
     Worker(Worker &&);
@@ -66,7 +70,9 @@ private:
 
     // afina services
     std::shared_ptr<Afina::Storage> _pStorage;
+    ServerImpl* _server;
 
+    std::mutex _mutex;
     // afina services
     std::shared_ptr<Afina::Logging::Service> _pLogging;
 

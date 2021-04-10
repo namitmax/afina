@@ -21,8 +21,9 @@ namespace Network {
 namespace MTnonblock {
 
 // See Worker.h
-Worker::Worker(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Afina::Logging::Service> pl)
-    : _pStorage(ps), _pLogging(pl), isRunning(false), _epoll_fd(-1) {
+Worker::Worker(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Afina::Logging::Service> pl,
+                ServerImpl* server)
+    : _pStorage(ps), _pLogging(pl), isRunning(false), _epoll_fd(-1), _server(server) {
     // TODO: implementation here
 }
 
@@ -57,7 +58,9 @@ void Worker::Start(int epoll_fd) {
 }
 
 // See Worker.h
-void Worker::Stop() { isRunning = false; }
+void Worker::Stop() {
+    isRunning = false;
+}
 
 // See Worker.h
 void Worker::Join() {
@@ -117,7 +120,12 @@ void Worker::OnRun() {
                 if ((epoll_ctl_retval = epoll_ctl(_epoll_fd, EPOLL_CTL_MOD, pconn->_socket, &pconn->_event))) {
                     _logger->debug("epoll_ctl failed during connection rearm: error {}", epoll_ctl_retval);
                     pconn->OnError();
-                    delete pconn;
+                    {
+                        std::unique_lock<std::mutex> lock(_mutex);
+                        _server->eraseConnection(pconn);
+                        close(pconn->_socket);
+                        delete pconn;
+                    }
                 }
             }
             // Or delete closed one
@@ -125,7 +133,12 @@ void Worker::OnRun() {
                 if (epoll_ctl(_epoll_fd, EPOLL_CTL_DEL, pconn->_socket, &pconn->_event)) {
                     std::cerr << "Failed to delete connection!" << std::endl;
                 }
-                delete pconn;
+                {
+                    std::unique_lock<std::mutex> lock(_mutex);
+                    _server->eraseConnection(pconn);
+                    close(pconn->_socket);
+                    delete pconn;
+                }
             }
         }
         // TODO: Select timeout...
