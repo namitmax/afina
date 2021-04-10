@@ -78,6 +78,7 @@ void Worker::OnRun() {
     // Do not forget to use EPOLLEXCLUSIVE flag when register socket
     // for events to avoid thundering herd type behavior.
     int timeout = -1;
+    //size_t count = 0;
     std::array<struct epoll_event, 64> mod_list;
     while (isRunning) {
         int nmod = epoll_wait(_epoll_fd, &mod_list[0], mod_list.size(), timeout);

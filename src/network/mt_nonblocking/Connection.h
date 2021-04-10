@@ -27,14 +27,13 @@ public:
         _event.data.ptr = this;
     }
 
-    inline bool isAlive() const { return true; }
+    inline bool isAlive() const { return _active; }
 
     void Start();
 
 protected:
     void OnError();
     void OnClose();
-    void Close();
     void DoRead();
     void DoWrite();
 

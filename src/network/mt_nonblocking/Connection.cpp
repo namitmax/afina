@@ -1,6 +1,14 @@
 #include "Connection.h"
 
 #include <iostream>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <signal.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 namespace Afina {
 namespace Network {
@@ -16,18 +24,13 @@ void Connection::Start() {
 
 // See Connection.h
 void Connection::OnError() {
-    _active.store(false, std::memory_order_relaxed);
     _event.events = 0;
+    _active.store(false, std::memory_order_relaxed);
 }
 
 // See Connection.h
 void Connection::OnClose() {
-    _active.store(false, std::memory_order_relaxed);
     _event.events = 0;
-}
-
-// See Connection.h
-void Connection::Close() {
     _active.store(false, std::memory_order_relaxed);
 }
 
@@ -66,7 +69,7 @@ void Connection::DoRead() {
                 // There is command, but we still wait for argument to arrive...
                 if (command_to_execute && arg_remains > 0) {
                     // There is some parsed command, and now we are reading argument
-                    //_logger->debug("Fill argument: {} bytes of {}", readed_bytes, arg_remains);
+                    _logger->debug("Fill argument: {} bytes of {}", readed_bytes, arg_remains);
                     std::size_t to_read = std::min(arg_remains, std::size_t(readed_bytes));
                     argument_for_command.append(client_buffer + _parsed, to_read);
 
@@ -101,7 +104,6 @@ void Connection::DoRead() {
             }
         } else if (readed_bytes == 0 || readed_bytes == EAGAIN || readed_bytes == EWOULDBLOCK) {
             _parsed = 0;
-            _active.store(false, std::memory_order_relaxed);
         } else {
             throw std::runtime_error(std::string(strerror(errno)));
         }
@@ -111,8 +113,8 @@ void Connection::DoRead() {
         responses.push_back("ERROR\r\n");
         if (!(_event.events & EPOLLOUT)) {
             _event.events |= EPOLLOUT;
+            std::atomic_thread_fence(std::memory_order_release);
         }
-        std::atomic_thread_fence(std::memory_order_release);
     }
 }
 
