@@ -16,6 +16,7 @@ namespace MTnonblock {
 
 // See Connection.h
 void Connection::Start() {
+    _write_only = false;
     _active.store(true, std::memory_order_relaxed);
     _parsed = 0;
     _shift = 0;
@@ -39,11 +40,13 @@ void Connection::DoRead() {
     std::atomic_thread_fence(std::memory_order_acquire);
     std::string argument_for_command;
     std::unique_ptr<Execute::Command> command_to_execute;
-    std::size_t arg_remains;
+    std::size_t arg_remains = 0;
     int readed_bytes = -1;
     try {
         if ((readed_bytes = read(_socket, client_buffer + _parsed, SIZE - _parsed)) > 0) {
             _logger->debug("Got {} bytes from socket", readed_bytes);
+            readed_bytes += _parsed;
+            _parsed = 0;
             while (readed_bytes > 0) {
                 // There is no command yet
                 if (!command_to_execute) {
@@ -102,20 +105,24 @@ void Connection::DoRead() {
                     parser.Reset();
                 }
             }
-        } else if (readed_bytes == 0 || readed_bytes == EAGAIN || readed_bytes == EWOULDBLOCK) {
+            if (readed_bytes == 0) {
+                _parsed = 0;
+            }
+        } else if (readed_bytes == 0) {
+            _write_only = true;
             _parsed = 0;
-        } else {
+        } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
             throw std::runtime_error(std::string(strerror(errno)));
         }
-        std::atomic_thread_fence(std::memory_order_release);
     } catch (std::runtime_error &ex) {
         _logger->error("Failed to process connection on descriptor {}: {}", _socket, ex.what());
+        _write_only = true;
         responses.push_back("ERROR\r\n");
         if (!(_event.events & EPOLLOUT)) {
             _event.events |= EPOLLOUT;
-            std::atomic_thread_fence(std::memory_order_release);
         }
     }
+    std::atomic_thread_fence(std::memory_order_release);
 }
 
 // See Connection.h
@@ -156,6 +163,9 @@ void Connection::DoWrite() {
     }
     if (responses.size() <= MAX){
         _event.events |= EPOLLIN;
+    }
+    if (_write_only && responses.empty()) {
+        close(_socket);
     }
     std::atomic_thread_fence(std::memory_order_release);
 }

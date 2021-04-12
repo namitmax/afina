@@ -129,9 +129,6 @@ void ServerImpl::Stop() {
     {
         std::lock_guard<std::mutex> lock(m);
         for (auto c : _connections) {
-            shutdown(c->_socket, SHUT_WR);
-        }
-        for (auto c : _connections) {
             shutdown(c->_socket, SHUT_RD);
         }
     }

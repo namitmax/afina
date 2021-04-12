@@ -56,6 +56,7 @@ private:
     size_t _shift;
 
     std::atomic<bool>  _active;
+    bool _write_only;
 
     std::shared_ptr<Afina::Storage> pStorage;
 
