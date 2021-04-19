@@ -2,8 +2,17 @@
 #define AFINA_NETWORK_MT_NONBLOCKING_CONNECTION_H
 
 #include <cstring>
+#include <deque>
+#include <memory>
 
 #include <sys/epoll.h>
+#include <sys/uio.h>
+
+#include <afina/Storage.h>
+#include <afina/execute/Command.h>
+#include <spdlog/logger.h>
+
+#include "protocol/Parser.h"
 
 namespace Afina {
 namespace Network {
@@ -11,12 +20,14 @@ namespace MTnonblock {
 
 class Connection {
 public:
-    Connection(int s) : _socket(s) {
+    Connection(int s, std::shared_ptr<Afina::Storage> pStorage_, std::shared_ptr<spdlog::logger> logger) :_socket(s),
+                                                                                                           pStorage(pStorage_),
+                                                                                                            _logger(logger){
         std::memset(&_event, 0, sizeof(struct epoll_event));
         _event.data.ptr = this;
     }
 
-    inline bool isAlive() const { return true; }
+    inline bool isAlive() const { return _active; }
 
     void Start();
 
@@ -32,6 +43,29 @@ private:
 
     int _socket;
     struct epoll_event _event;
+
+
+    std::size_t arg_remains = 0;
+    std::string argument_for_command;
+    std::unique_ptr<Execute::Command> command_to_execute;
+    char client_buffer[4096] = "";
+    const size_t SIZE = 4096;
+
+    int _parsed;
+    Protocol::Parser parser;
+
+    std::shared_ptr<spdlog::logger> _logger;
+
+    std::deque<std::string> responses;
+    size_t _shift;
+
+    std::atomic<bool>  _active;
+    bool _write_only;
+
+    std::shared_ptr<Afina::Storage> pStorage;
+
+    size_t MAX = 128;
+
 };
 
 } // namespace MTnonblock

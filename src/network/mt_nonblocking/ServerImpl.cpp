@@ -33,7 +33,10 @@ namespace MTnonblock {
 ServerImpl::ServerImpl(std::shared_ptr<Afina::Storage> ps, std::shared_ptr<Logging::Service> pl) : Server(ps, pl) {}
 
 // See Server.h
-ServerImpl::~ServerImpl() {}
+ServerImpl::~ServerImpl() {
+    Stop();
+    Join();
+}
 
 // See Server.h
 void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) {
@@ -63,6 +66,11 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
     if (setsockopt(_server_socket, SOL_SOCKET, (SO_KEEPALIVE), &opts, sizeof(opts)) == -1) {
         close(_server_socket);
         throw std::runtime_error("Socket setsockopt() failed: " + std::string(strerror(errno)));
+    }
+
+    if (setsockopt(_server_socket, SOL_SOCKET, SO_REUSEADDR, &opts, sizeof(opts)) == -1) {
+        close(_server_socket);
+        throw std::runtime_error("Socket setsockopt() failed");
     }
 
     if (bind(_server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
@@ -96,7 +104,7 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
 
     _workers.reserve(n_workers);
     for (int i = 0; i < n_workers; i++) {
-        _workers.emplace_back(pStorage, pLogging);
+        _workers.emplace_back(pStorage, pLogging, this);
         _workers.back().Start(_data_epoll_fd);
     }
 
@@ -114,11 +122,17 @@ void ServerImpl::Stop() {
     for (auto &w : _workers) {
         w.Stop();
     }
-
     // Wakeup threads that are sleep on epoll_wait
     if (eventfd_write(_event_fd, 1)) {
         throw std::runtime_error("Failed to wakeup workers");
     }
+    {
+        std::lock_guard<std::mutex> lock(m);
+        for (auto c : _connections) {
+            shutdown(c->_socket, SHUT_RD);
+        }
+    }
+    shutdown(_server_socket, SHUT_RDWR);
 }
 
 // See Server.h
@@ -126,10 +140,21 @@ void ServerImpl::Join() {
     for (auto &t : _acceptors) {
         t.join();
     }
-
+    _acceptors.clear();
     for (auto &w : _workers) {
         w.Join();
     }
+    _workers.clear();
+    {
+        std::lock_guard<std::mutex> lock(m);
+        for (auto single_connection : _connections) {
+            close(single_connection->_socket);
+            single_connection->OnClose();
+            delete single_connection;
+        }
+        _connections.clear();
+    }
+    close(_server_socket);
 }
 
 // See ServerImpl.h
@@ -155,7 +180,7 @@ void ServerImpl::OnRun() {
     }
 
     bool run = true;
-    std::array<struct epoll_event, 64> mod_list;
+    std::array<struct epoll_event, 64> mod_list = {};
     while (run) {
         int nmod = epoll_wait(acceptor_epoll, &mod_list[0], mod_list.size(), -1);
         _logger->debug("Acceptor wokeup: {} events", nmod);
@@ -193,7 +218,7 @@ void ServerImpl::OnRun() {
                 }
 
                 // Register the new FD to be monitored by epoll.
-                Connection *pc = new Connection(infd);
+                Connection *pc = new Connection(infd, pStorage, _logger);
                 if (pc == nullptr) {
                     throw std::runtime_error("Failed to allocate connection");
                 }
@@ -208,6 +233,9 @@ void ServerImpl::OnRun() {
                         pc->OnError();
                         delete pc;
                     }
+                } else {
+                    std::unique_lock<std::mutex> lock(m);
+                    _connections.emplace(pc);
                 }
             }
         }
