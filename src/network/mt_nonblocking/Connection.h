@@ -44,6 +44,10 @@ private:
     int _socket;
     struct epoll_event _event;
 
+
+    std::size_t arg_remains = 0;
+    std::string argument_for_command;
+    std::unique_ptr<Execute::Command> command_to_execute;
     char client_buffer[4096] = "";
     const size_t SIZE = 4096;
 

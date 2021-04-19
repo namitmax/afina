@@ -38,9 +38,6 @@ void Connection::OnClose() {
 // See Connection.h
 void Connection::DoRead() {
     std::atomic_thread_fence(std::memory_order_acquire);
-    std::string argument_for_command;
-    std::unique_ptr<Execute::Command> command_to_execute;
-    std::size_t arg_remains = 0;
     int readed_bytes = -1;
     try {
         if ((readed_bytes = read(_socket, client_buffer + _parsed, SIZE - _parsed)) > 0) {
@@ -78,6 +75,7 @@ void Connection::DoRead() {
 
                     arg_remains -= to_read;
                     _parsed += to_read;
+                    readed_bytes -= to_read;
                 }
                 // There are command & argument - RUN!
                 if (command_to_execute && arg_remains == 0) {
@@ -121,6 +119,7 @@ void Connection::DoRead() {
         if (!(_event.events & EPOLLOUT)) {
             _event.events |= EPOLLOUT;
         }
+        _event.events &= ~EPOLLIN;
     }
     std::atomic_thread_fence(std::memory_order_release);
 }
@@ -128,8 +127,8 @@ void Connection::DoRead() {
 // See Connection.h
 void Connection::DoWrite() {
     std::atomic_thread_fence(std::memory_order_acquire);
-    size_t write_vec_size = 64;
-    iovec write_vec[write_vec_size];
+    const size_t write_vec_size = 64;
+    iovec write_vec[write_vec_size] = {};
     size_t write_vec_v = 0;
     {
         auto it = responses.begin();
@@ -165,7 +164,7 @@ void Connection::DoWrite() {
         _event.events |= EPOLLIN;
     }
     if (_write_only && responses.empty()) {
-        close(_socket);
+        OnClose();
     }
     std::atomic_thread_fence(std::memory_order_release);
 }
