@@ -32,6 +32,7 @@ private:
 
     int _socket;
     struct epoll_event _event;
+
 };
 
 } // namespace MTnonblock

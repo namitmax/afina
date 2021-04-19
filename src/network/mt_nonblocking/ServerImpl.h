@@ -1,10 +1,9 @@
 #ifndef AFINA_NETWORK_MT_NONBLOCKING_SERVER_H
 #define AFINA_NETWORK_MT_NONBLOCKING_SERVER_H
 
+#include <afina/network/Server.h>
 #include <thread>
 #include <vector>
-
-#include <afina/network/Server.h>
 
 namespace spdlog {
 class logger;

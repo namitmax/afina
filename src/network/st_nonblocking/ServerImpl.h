@@ -3,6 +3,8 @@
 
 #include <thread>
 #include <vector>
+#include "Connection.h"
+#include <set>
 
 #include <afina/network/Server.h>
 
@@ -43,11 +45,6 @@ private:
     // logger to use
     std::shared_ptr<spdlog::logger> _logger;
 
-    // Port to listen for new connections, permits access only from
-    // inside of accept_thread
-    // Read-only
-    uint16_t listen_port;
-
     // Socket to accept new connection on, shared between acceptors
     int _server_socket;
 
@@ -55,7 +52,8 @@ private:
     int _event_fd;
 
     // IO thread
-    std::thread _work_thread;
+    std::thread _thread;
+    std::set<Connection *> _connections;
 };
 
 } // namespace STnonblock
