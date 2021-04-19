@@ -80,6 +80,11 @@ void ServerImpl::Start(uint16_t port, uint32_t n_acceptors, uint32_t n_workers) 
         throw std::runtime_error("Socket setsockopt() failed: " + std::string(strerror(errno)));
     }
 
+    if (setsockopt(_server_socket, SOL_SOCKET, SO_REUSEADDR, &opts, sizeof(opts)) == -1) {
+        close(_server_socket);
+        throw std::runtime_error("Socket setsockopt() failed");
+    }
+
     if (bind(_server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
         close(_server_socket);
         throw std::runtime_error("Socket bind() failed: " + std::string(strerror(errno)));
@@ -168,11 +173,11 @@ void ServerImpl::OnRun() {
                 // Depends on what connection wants...
                 if (current_event.events & EPOLLIN) {
                     pc->DoRead();
-                    current_event.events = pc->_event.events;
+                    //current_event.events = pc->_event.events;
                 }
                 if (current_event.events & EPOLLOUT) {
                     pc->DoWrite();
-                    current_event.events = pc->_event.events;
+                    //current_event.events = pc->_event.events;
                 }
             }
 

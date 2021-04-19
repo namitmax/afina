@@ -52,6 +52,9 @@ private:
     int _parsed;
     Protocol::Parser parser;
 
+    std::string argument_for_command = "";
+    std::unique_ptr<Execute::Command> command_to_execute;
+    std::size_t arg_remains = 0;
     std::shared_ptr<spdlog::logger> _logger;
 
     std::deque<std::string> responses;

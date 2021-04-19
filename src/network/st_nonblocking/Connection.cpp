@@ -37,9 +37,6 @@ void Connection::Close() {
 
 // See Connection.h
 void Connection::DoRead() {
-    std::string argument_for_command;
-    std::unique_ptr<Execute::Command> command_to_execute;
-    std::size_t arg_remains;
     int readed_bytes;
     try {
         if ((readed_bytes = read(_socket, client_buffer + _parsed, SIZE - _parsed)) > 0) {
@@ -73,6 +70,7 @@ void Connection::DoRead() {
 
                     arg_remains -= to_read;
                     _parsed += to_read;
+                    readed_bytes -= to_read;
                 }
                 // There are command & argument - RUN!
                 if (command_to_execute && arg_remains == 0) {
@@ -100,8 +98,13 @@ void Connection::DoRead() {
                     parser.Reset();
                 }
             }
-        } else if (readed_bytes < 1) {
-            _active = false;
+            if (readed_bytes == 0) {
+                _parsed = 0;
+            }
+        } else if (readed_bytes == 0) {
+            _parsed = 0;
+        } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            throw std::runtime_error(std::string(strerror(errno)));
         }
     } catch (std::runtime_error &ex) {
         _logger->error("Failed to process connection on descriptor {}: {}", _socket, ex.what());
@@ -114,8 +117,8 @@ void Connection::DoRead() {
 
 // See Connection.h
 void Connection::DoWrite() {
-    size_t write_vec_size = 64;
-    iovec write_vec[write_vec_size];
+    const size_t write_vec_size = 64;
+    iovec write_vec[write_vec_size] = {};
     size_t write_vec_v = 0;
     {
         auto it = responses.begin();
